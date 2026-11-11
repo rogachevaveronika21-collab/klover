@@ -107,16 +107,16 @@ function photoField(label, getName, setName) {
   const showSrc = (src) => {
     if (!src) { img.removeAttribute('src'); return; }
     img.src = src;
-    img.onerror = () => { img.removeAttribute('src'); img.alt = 'файла нет в images'; };
+    img.onerror = () => { img.removeAttribute('src'); img.alt = 'файла нет в корне репозитория'; };
   };
-  showSrc(getName() ? 'images/' + getName() : '');
+  showSrc(getName() ? getName() : '');
 
   const right = document.createElement('div');
   right.className = 'grow';
-  const nameField = field('Имя файла в папке images', getName(), (v) => {
+  const nameField = field('Имя файла в корне репозитория', getName(), (v) => {
     setName(v);
-    showSrc(v ? 'images/' + v : '');
-  }, false, 'Например: yolochka.jpg. Файл с таким именем должен лежать в папке images на GitHub.');
+    showSrc(v ? v : '');
+  }, false, 'Например: yolochka.jpg. Файл с таким именем должен лежать в корне репозитория на GitHub.');
   right.append(nameField);
 
   const pick = document.createElement('input');
@@ -132,11 +132,11 @@ function photoField(label, getName, setName) {
     nameField.querySelector('input').value = f.name;
     setName(f.name);
     persist();
-    flash('Загрузите файл ' + f.name + ' в папку images на GitHub');
+    flash('Загрузите файл ' + f.name + ' в корень репозитория на GitHub');
   });
   const hint = document.createElement('div');
   hint.className = 'hint';
-  hint.textContent = 'Выбрать новое фото с телефона: оно появится в превью, а имя файла заменится. Затем загрузите то же фото в images на GitHub с этим именем.';
+  hint.textContent = 'Выбрать новое фото с телефона: оно появится в превью, а имя файла заменится. Затем загрузите то же фото в корень репозитория на GitHub с этим именем.';
   right.append(pick, hint);
 
   row.append(img, right);
