@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KLOVER — редактор каталога</title>
+<style>
+[hidden]{display:none!important}
+*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:0;background:#f6f1ea;color:#2a1b14}
+header{background:#2a1610;color:#f6f1ea;padding:12px 14px;position:sticky;top:0;z-index:5}
+header h1{font-size:17px;margin:0 0 8px;font-weight:600}
+main{padding:12px;max-width:720px;margin:0 auto;padding-bottom:60px}
+button{font:inherit;font-size:14px;padding:8px 11px;border-radius:8px;border:1px solid #8a6d4f;background:#fff;color:#2a1b14;cursor:pointer}
+button.primary{background:#b08d58;border-color:#b08d58;color:#fff}
+button.danger{color:#a02222;border-color:#d9a3a3}
+.bar{display:flex;flex-wrap:wrap;gap:6px}
+select,input,textarea{width:100%;font:inherit;font-size:15px;padding:9px;border:1px solid #cbb89c;border-radius:8px;background:#fff;color:#2a1b14}
+textarea{min-height:72px;resize:vertical}
+.card{background:#fff;border-radius:12px;padding:14px;margin-top:12px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.f{display:block;margin:10px 0}
+.f>span{display:block;font-size:13px;color:#6b5646;margin-bottom:4px}
+.hint{font-size:12.5px;color:#7a6657;line-height:1.45;margin-top:4px}
+.photo{display:flex;gap:12px;align-items:flex-start}
+.photo img{width:96px;height:128px;object-fit:cover;border-radius:8px;background:#eee;flex:none}
+.photo .grow{flex:1;min-width:0}
+h2{font-size:16px;margin:0 0 6px}
+.ok{position:fixed;left:12px;right:12px;bottom:12px;background:#2d5a2a;color:#fff;padding:10px 12px;border-radius:10px;font-size:14px;z-index:9}
+</style>
+</head>
+<body>
+<header>
+  <h1>Редактор каталога KLOVER</h1>
+  <div class="bar">
+    <button class="primary" id="btnDownload">Скачать products.json</button>
+    <button id="btnUpload">Загрузить products.json</button>
+    <button class="danger" id="btnReset">Сбросить правки</button>
+  </div>
+  <input type="file" id="fileUp" accept="application/json" hidden>
+</header>
+
+<main>
+  <div class="card">
+    <label class="f" style="margin:0">
+      <span>Что редактируем</span>
+      <select id="sec"></select>
+    </label>
+    <div class="hint">Правки сразу сохраняются в этом браузере. Чтобы они попали в каталог, нажмите «Скачать products.json» и загрузите файл в репозиторий GitHub (заменив старый).</div>
+  </div>
+  <div id="form"></div>
+</main>
+
+<div id="toast" class="ok" hidden></div>
+
+<script>
+const DRAFT = 'klover-draft-v1';
+let data = null;
+let sections = [];
+let selIdx = 0;
+
+const $ = (id) => document.getElementById(id);
+
+function flash(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(flash.timer);
+  flash.timer = setTimeout(() => (t.hidden = true), 3000);
+}
+
+function persist() {
+  localStorage.setItem(DRAFT, JSON.stringify(data));
+}
+
+// Текстовое поле. multi=true — многострочное
+function field(label, value, onChange, multi, hint) {
+  const wrap = document.createElement('label');
+  wrap.className = 'f';
+  const s = document.createElement('span');
+  s.textContent = label;
+  wrap.append(s);
+  const el = document.createElement(multi ? 'textarea' : 'input');
+  if (!multi) el.type = 'text';
+  el.value = value ?? '';
+  el.addEventListener('input', () => { onChange(el.value); persist(); });
+  wrap.append(el);
+  if (hint) {
+    const h = document.createElement('div');
+    h.className = 'hint';
+    h.textContent = hint;
+    wrap.append(h);
+  }
+  return wrap;
+}
+
+// Поле фото: превью + имя файла + выбор нового файла
+function photoField(label, getName, setName) {
+  const box = document.createElement('div');
+  box.className = 'f';
+  const s = document.createElement('span');
+  s.textContent = label;
+  box.append(s);
+
+  const row = document.createElement('div');
+  row.className = 'photo';
+  const img = document.createElement('img');
+  const showSrc = (src) => {
+    if (!src) { img.removeAttribute('src'); return; }
+    img.src = src;
+    img.onerror = () => { img.removeAttribute('src'); img.alt = 'файла нет в images'; };
+  };
+  showSrc(getName() ? 'images/' + getName() : '');
+
+  const right = document.createElement('div');
+  right.className = 'grow';
+  const nameField = field('Имя файла в папке images', getName(), (v) => {
+    setName(v);
+    showSrc(v ? 'images/' + v : '');
+  }, false, 'Например: yolochka.jpg. Файл с таким именем должен лежать в папке images на GitHub.');
+  right.append(nameField);
+
+  const pick = document.createElement('input');
+  pick.type = 'file';
+  pick.accept = 'image/*';
+  pick.style.marginTop = '6px';
+  pick.addEventListener('change', () => {
+    const f = pick.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => showSrc(r.result);
+    r.readAsDataURL(f);
+    nameField.querySelector('input').value = f.name;
+    setName(f.name);
+    persist();
+    flash('Загрузите файл ' + f.name + ' в папку images на GitHub');
+  });
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.textContent = 'Выбрать новое фото с телефона: оно появится в превью, а имя файла заменится. Затем загрузите то же фото в images на GitHub с этим именем.';
+  right.append(pick, hint);
+
+  row.append(img, right);
+  box.append(row);
+  return box;
+}
+
+function h2(text) {
+  const h = document.createElement('h2');
+  h.textContent = text;
+  return h;
+}
+
+function card(...children) {
+  const c = document.createElement('div');
+  c.className = 'card';
+  c.append(...children);
+  return c;
+}
+
+function linesToArr(text) {
+  return text.split('\n').map((x) => x.trim()).filter(Boolean);
+}
+
+function rowsToText(rows) {
+  return rows.map((r) => [r.qty, r.box, r.price].join(' | ')).join('\n');
+}
+
+function textToRows(text) {
+  return linesToArr(text).map((ln) => {
+    const p = ln.split('|').map((x) => x.trim());
+    return { qty: p[0] || '', box: p[1] || '', price: p[2] || '' };
+  });
+}
+
+function buildSections() {
+  sections = [{ k: 'cover', label: 'Обложка' }];
+  data.items.forEach((it, i) => {
+    sections.push({
+      k: it.type,
+      i,
+      label: (it.type === 'table' ? 'Таблица: ' : 'Товар: ') + it.title,
+    });
+  });
+  sections.push({ k: 'reviews', label: 'Отзывы' });
+  sections.push({ k: 'order', label: 'Как заказать (контакты, сроки, доставка)' });
+  sections.push({ k: 'add', label: '+ Добавить товар' });
+}
+
+function renderSelect() {
+  const sel = $('sec');
+  sel.innerHTML = '';
+  sections.forEach((s, i) => {
+    const o = document.createElement('option');
+    o.value = i;
+    o.textContent = s.label;
+    sel.append(o);
+  });
+  sel.value = selIdx;
+}
+
+function deleteButton(index) {
+  const b = document.createElement('button');
+  b.className = 'danger';
+  b.textContent = 'Удалить этот товар из каталога';
+  b.style.marginTop = '12px';
+  b.addEventListener('click', () => {
+    if (!confirm('Удалить позицию из каталога?')) return;
+    data.items.splice(index, 1);
+    persist();
+    selIdx = 0;
+    render();
+    flash('Позиция удалена');
+  });
+  return b;
+}
+
+function renderCover(form) {
+  const c = data.cover;
+  form.append(card(
+    h2('Обложка'),
+    field('Надпись над заголовком', c.season, (v) => (c.season = v)),
+    field('Заголовок (первая строка)', c.title, (v) => (c.title = v)),
+    field('Подзаголовок', c.subtitle, (v) => (c.subtitle = v)),
+    field('Вступительный текст', c.intro, (v) => (c.intro = v), true),
+    field('Строка приёма заказов', c.deadline, (v) => (c.deadline = v)),
+    field('Телефон', c.phone, (v) => (c.phone = v)),
+    field('Ссылка ВКонтакте', c.vk, (v) => (c.vk = v))
+  ));
+}
+
+function renderProduct(form, it, index) {
+  form.append(card(
+    h2('Товар ' + String(index + 1).padStart(2, '0')),
+    field('Название', it.title, (v) => (it.title = v)),
+    field('Подзаголовок', it.subtitle, (v) => (it.subtitle = v)),
+    field('Описание', it.desc, (v) => (it.desc = v), true),
+    field('Цена', it.price, (v) => (it.price = v)),
+    field('Пометка к цене', it.price_note, (v) => (it.price_note = v)),
+    field('Список (каждый пункт с новой строки)', (it.bullets || []).join('\n'),
+      (v) => (it.bullets = linesToArr(v)), true, 'Оставьте пустым, если список не нужен.'),
+    photoField('Фото', () => it.image || '', (v) => (it.image = v)),
+    photoField('Второе фото (необязательно)', () => it.image2 || '', (v) => (it.image2 = v)),
+    deleteButton(index)
+  ));
+}
+
+function renderTable(form, t, index) {
+  form.append(card(
+    h2('Таблица: ' + t.title),
+    field('Название', t.title, (v) => (t.title = v)),
+    field('Подзаголовок', t.subtitle, (v) => (t.subtitle = v)),
+    field('Описание', t.desc, (v) => (t.desc = v), true),
+    field('Строки таблицы', rowsToText(t.rows),
+      (v) => (t.rows = textToRows(v)), true,
+      'Одна строка = одна позиция. Формат: количество | коробка | цена. Например: 12 шт. | коробка 19 × 15 см | 1 200 ₽'),
+    field('Примечание под таблицей', t.note, (v) => (t.note = v), true),
+    photoField('Фото', () => t.image || '', (v) => (t.image = v)),
+    deleteButton(index)
+  ));
+}
+
+function renderReviews(form) {
+  form.append(h2('Отзывы'));
+  data.reviews.forEach((r, i) => {
+    form.append(card(
+      h2('Отзыв ' + (i + 1)),
+      photoField('Скриншот', () => r.image || '', (v) => (r.image = v)),
+      field('Цитата под скриншотом', r.quote, (v) => (r.quote = v), true)
+    ));
+  });
+}
+
+function renderOrder(form) {
+  const o = data.order;
+  form.append(card(
+    h2('Как заказать'),
+    field('Срок приёма заказов', o.deadline, (v) => (o.deadline = v)),
+    field('Телефон', o.phone, (v) => (o.phone = v)),
+    field('Ссылка ВКонтакте', o.vk, (v) => (o.vk = v)),
+    field('Строка с мессенджерами', o.messengers, (v) => (o.messengers = v)),
+    field('Доставка (каждый пункт с новой строки)', o.delivery.join('\n'),
+      (v) => (o.delivery = linesToArr(v)), true),
+    field('Сроки хранения (каждый пункт с новой строки)', o.storage.join('\n'),
+      (v) => (o.storage = linesToArr(v)), true),
+    field('Заголовок блока для корпоративных клиентов', o.corporate_title,
+      (v) => (o.corporate_title = v)),
+    field('Условия для корпоративных клиентов (с новой строки)', o.corporate_lines.join('\n'),
+      (v) => (o.corporate_lines = linesToArr(v)), true),
+    field('Примечание для корпоративных клиентов', o.corporate_note,
+      (v) => (o.corporate_note = v), true),
+    photoField('QR-код', () => o.qr || '', (v) => (o.qr = v))
+  ));
+}
+
+function render() {
+  buildSections();
+  if (selIdx >= sections.length) selIdx = 0;
+  renderSelect();
+  const s = sections[selIdx];
+  const form = $('form');
+  form.innerHTML = '';
+  if (s.k === 'cover') renderCover(form);
+  else if (s.k === 'product') renderProduct(form, data.items[s.i], s.i);
+  else if (s.k === 'table') renderTable(form, data.items[s.i], s.i);
+  else if (s.k === 'reviews') renderReviews(form);
+  else if (s.k === 'order') renderOrder(form);
+}
+
+function download() {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'products.json';
+  a.click();
+  flash('products.json скачан. Загрузите его в репозиторий GitHub вместо старого');
+}
+
+async function init() {
+  const saved = localStorage.getItem(DRAFT);
+  if (saved) {
+    try { data = JSON.parse(saved); } catch (e) { data = null; }
+  }
+  if (!data) {
+    const r = await fetch('products.json', { cache: 'no-store' });
+    data = await r.json();
+  }
+
+  $('sec').addEventListener('change', (e) => {
+    const s = sections[Number(e.target.value)];
+    if (s.k === 'add') {
+      data.items.push({
+        type: 'product', title: 'Новый товар', subtitle: '', desc: '',
+        price: '', price_note: '', image: '', image2: '', bullets: [],
+      });
+      persist();
+      selIdx = data.items.length; // новый товар стоит последним
+    } else {
+      selIdx = Number(e.target.value);
+    }
+    render();
+  });
+
+  $('btnDownload').addEventListener('click', download);
+  $('btnUpload').addEventListener('click', () => $('fileUp').click());
+  $('fileUp').addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        data = JSON.parse(r.result);
+        persist();
+        selIdx = 0;
+        render();
+        flash('Файл загружен');
+      } catch (err) {
+        flash('Ошибка: в файле не JSON. Проверьте скобки и запятые');
+      }
+    };
+    r.readAsText(f);
+  });
+  $('btnReset').addEventListener('click', async () => {
+    if (!confirm('Сбросить все правки в этом браузере и вернуться к файлу products.json из репозитория?')) return;
+    localStorage.removeItem(DRAFT);
+    const r = await fetch('products.json', { cache: 'no-store' });
+    data = await r.json();
+    selIdx = 0;
+    render();
+    flash('Правки сброшены');
+  });
+
+  render();
+}
+
+init().catch(() => flash('Не удалось открыть products.json. Проверьте, что файл лежит рядом с index.html'));
+</script>
+</body>
+</html>
